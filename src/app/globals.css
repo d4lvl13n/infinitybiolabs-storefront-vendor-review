@@ -1,0 +1,493 @@
+/* postcss-import inlines this BEFORE Tailwind processes */
+@import "../styles/brand.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+	*,
+	*::before,
+	*::after {
+		border-color: var(--border);
+	}
+	html {
+		scroll-behavior: smooth;
+	}
+	body {
+		background-color: var(--background);
+		color: var(--foreground);
+		-webkit-font-smoothing: antialiased;
+		-moz-osx-font-smoothing: grayscale;
+	}
+}
+
+@layer components {
+	/* Transparent header — use foreground color by default (works in light mode) */
+	header[data-transparent] {
+		color: var(--foreground);
+	}
+	header[data-transparent] input {
+		background-color: var(--secondary);
+		border-color: var(--border);
+		color: var(--foreground);
+	}
+	header[data-transparent] input::placeholder {
+		color: var(--muted-foreground);
+	}
+	header[data-transparent] svg {
+		color: var(--foreground);
+	}
+	header[data-transparent] button,
+	header[data-transparent] a {
+		color: var(--foreground);
+	}
+
+	/* Dark mode: override transparent header to white for dark hero backgrounds */
+	.dark header[data-transparent] {
+		color: white;
+	}
+	.dark header[data-transparent] img:not([data-logo]) {
+		filter: brightness(10);
+	}
+	.dark header[data-transparent] input {
+		background-color: rgba(255, 255, 255, 0.1);
+		border-color: rgba(255, 255, 255, 0.15);
+		color: white;
+	}
+	.dark header[data-transparent] input::placeholder {
+		color: rgba(255, 255, 255, 0.5);
+	}
+	.dark header[data-transparent] svg {
+		color: white;
+	}
+	.dark header[data-transparent] button,
+	.dark header[data-transparent] a {
+		color: white;
+	}
+}
+
+@layer utilities {
+	/* Subtle noise texture overlay for dark sections */
+	.noise-overlay::after {
+		content: "";
+		position: absolute;
+		inset: 0;
+		opacity: 0.03;
+		pointer-events: none;
+		background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+		background-repeat: repeat;
+		background-size: 256px 256px;
+	}
+
+	/* Emerald glow effect for card hovers */
+	.glow-emerald {
+		box-shadow:
+			0 0 0 1px rgba(16, 185, 129, 0),
+			0 0 0 0 rgba(16, 185, 129, 0),
+			0 4px 6px -1px rgba(0, 0, 0, 0.1);
+		transition:
+			box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+			transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+			border-color 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+	.glow-emerald:hover {
+		box-shadow:
+			0 0 0 1px rgba(16, 185, 129, 0.3),
+			0 0 20px 0 rgba(16, 185, 129, 0.08),
+			0 8px 25px -5px rgba(0, 0, 0, 0.2);
+		transform: translateY(-2px);
+	}
+
+	/* Card lift effect for product cards */
+	.card-lift {
+		transition:
+			transform 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+			box-shadow 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+	}
+	.card-lift:hover {
+		transform: translateY(-4px);
+		box-shadow: 0 20px 40px -12px rgba(0, 0, 0, 0.15);
+	}
+}
+
+/* ═══════════════════════════════════════════
+ * Legal page prose — outside @layer for
+ * full specificity over Tailwind resets
+ * ═══════════════════════════════════════════ */
+
+.legal-content > p:first-child {
+	font-size: 1rem;
+	line-height: 1.8;
+	color: rgb(212 212 212);
+	margin-bottom: 2rem;
+	padding-bottom: 2rem;
+	border-bottom: 1px solid rgb(38 38 38);
+}
+
+.legal-content h2 {
+	font-size: 1.125rem;
+	font-weight: 700;
+	color: white;
+	margin-top: 3rem;
+	margin-bottom: 1rem;
+	padding-top: 2rem;
+	border-top: 1px solid rgb(38 38 38);
+	letter-spacing: -0.01em;
+}
+
+.legal-content h2:first-of-type {
+	margin-top: 0;
+	padding-top: 0;
+	border-top: none;
+}
+
+.legal-content h3 {
+	font-size: 0.95rem;
+	font-weight: 600;
+	color: rgb(229 229 229);
+	margin-top: 1.75rem;
+	margin-bottom: 0.5rem;
+}
+
+.legal-content p {
+	font-size: 0.875rem;
+	line-height: 1.8;
+	color: rgb(163 163 163);
+	margin-bottom: 1rem;
+}
+
+.legal-content ul {
+	list-style: none;
+	padding-left: 0;
+	margin-bottom: 1.25rem;
+}
+
+.legal-content ul li {
+	font-size: 0.875rem;
+	line-height: 1.7;
+	color: rgb(163 163 163);
+	padding-left: 1.25rem;
+	margin-bottom: 0.5rem;
+	position: relative;
+}
+
+.legal-content ul li::before {
+	content: "";
+	position: absolute;
+	left: 0;
+	top: 0.6em;
+	width: 5px;
+	height: 5px;
+	border-radius: 50%;
+	background-color: rgb(52 211 153);
+}
+
+.legal-content strong {
+	color: white;
+	font-weight: 600;
+}
+
+.legal-content table {
+	width: 100%;
+	border-collapse: collapse;
+	margin: 1.5rem 0;
+	font-size: 0.8125rem;
+	border: 1px solid rgb(38 38 38);
+	border-radius: 0.75rem;
+	overflow: hidden;
+}
+
+.legal-content thead th {
+	text-align: left;
+	padding: 0.875rem 1rem;
+	background: rgb(23 23 23);
+	color: white;
+	font-weight: 600;
+	font-size: 0.75rem;
+	text-transform: uppercase;
+	letter-spacing: 0.05em;
+	border-bottom: 1px solid rgb(38 38 38);
+}
+
+.legal-content tbody td {
+	padding: 0.75rem 1rem;
+	color: rgb(163 163 163);
+	border-bottom: 1px solid rgb(38 38 38);
+}
+
+.legal-content tbody tr:last-child td {
+	border-bottom: none;
+}
+
+.legal-callout {
+	border-left: 3px solid rgb(52 211 153);
+	background: rgba(52, 211, 153, 0.05);
+	padding: 1rem 1.25rem;
+	border-radius: 0 0.5rem 0.5rem 0;
+	margin: 1.25rem 0;
+	font-size: 0.875rem;
+	line-height: 1.7;
+	color: rgb(212 212 212);
+}
+
+.legal-callout strong {
+	color: rgb(52 211 153);
+	font-weight: 700;
+}
+
+.legal-contact {
+	margin-top: 2.5rem;
+	padding: 1.5rem;
+	border-radius: 1rem;
+	border: 1px solid rgb(38 38 38);
+	background: rgb(23 23 23);
+}
+
+.legal-contact p {
+	color: rgb(163 163 163);
+	margin-bottom: 0.5rem;
+}
+
+.legal-contact a {
+	color: rgb(52 211 153);
+	text-decoration: none;
+	transition: color 0.15s;
+}
+
+.legal-contact a:hover {
+	color: rgb(110 231 183);
+}
+
+@keyframes ib-float {
+	0%,
+	100% {
+		transform: translateY(0px);
+	}
+	50% {
+		transform: translateY(-5px);
+	}
+}
+
+@keyframes ib-card-enter {
+	0% {
+		opacity: 0;
+		transform: translateY(18px) scale(0.985);
+	}
+	100% {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes ib-breathe {
+	0%,
+	100% {
+		transform: scale(1);
+		opacity: 0.88;
+	}
+	50% {
+		transform: scale(1.015);
+		opacity: 1;
+	}
+}
+
+@keyframes ib-sheen {
+	0% {
+		transform: translateX(-130%);
+		opacity: 0;
+	}
+	20%,
+	80% {
+		opacity: 1;
+	}
+	100% {
+		transform: translateX(130%);
+		opacity: 0;
+	}
+}
+
+@keyframes ib-badge-glow {
+	0%,
+	100% {
+		box-shadow: 0 0 0 rgba(16, 185, 129, 0);
+	}
+	50% {
+		box-shadow: 0 0 22px rgba(16, 185, 129, 0.14);
+	}
+}
+
+@keyframes ib-share-fade {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes ib-share-rise {
+	from {
+		opacity: 0;
+		transform: translateY(12px) scale(0.98);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0) scale(1);
+	}
+}
+
+@keyframes ib-goal-float {
+	0%,
+	100% {
+		transform: translateY(0px);
+	}
+	50% {
+		transform: translateY(-7px);
+	}
+}
+
+@keyframes ib-goal-pulse {
+	0%,
+	100% {
+		transform: scale(1);
+		opacity: 0.45;
+	}
+	50% {
+		transform: scale(1.05);
+		opacity: 0.9;
+	}
+}
+
+@keyframes ib-goal-sheen {
+	0% {
+		transform: translateX(-135%);
+		opacity: 0;
+	}
+	20%,
+	80% {
+		opacity: 1;
+	}
+	100% {
+		transform: translateX(135%);
+		opacity: 0;
+	}
+}
+
+@keyframes ib-goal-orbit {
+	0% {
+		transform: rotate(0deg);
+	}
+	100% {
+		transform: rotate(360deg);
+	}
+}
+
+@keyframes ib-goal-bar {
+	0%,
+	100% {
+		transform: scaleY(0.45);
+		opacity: 0.35;
+	}
+	50% {
+		transform: scaleY(1);
+		opacity: 0.95;
+	}
+}
+
+@keyframes ib-goal-drift {
+	0%,
+	100% {
+		transform: translateX(0px);
+		opacity: 0.35;
+	}
+	50% {
+		transform: translateX(8px);
+		opacity: 0.9;
+	}
+}
+
+@keyframes ib-story-float {
+	0%,
+	100% {
+		transform: translateY(0px);
+	}
+	50% {
+		transform: translateY(-6px);
+	}
+}
+
+@keyframes ib-story-sheen {
+	0% {
+		transform: translateX(-130%);
+		opacity: 0;
+	}
+	18%,
+	82% {
+		opacity: 1;
+	}
+	100% {
+		transform: translateX(130%);
+		opacity: 0;
+	}
+}
+
+@keyframes ib-story-breathe {
+	0%,
+	100% {
+		transform: scale(1);
+		opacity: 0.8;
+	}
+	50% {
+		transform: scale(1.02);
+		opacity: 1;
+	}
+}
+
+@keyframes ib-story-pulse {
+	0%,
+	100% {
+		box-shadow: 0 0 0 rgba(16, 185, 129, 0);
+	}
+	50% {
+		box-shadow: 0 0 24px rgba(16, 185, 129, 0.18);
+	}
+}
+
+@keyframes ib-story-scan {
+	0% {
+		transform: translateY(-10px);
+		opacity: 0;
+	}
+	15%,
+	85% {
+		opacity: 1;
+	}
+	100% {
+		transform: translateY(290px);
+		opacity: 0;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	.how-ordering-works,
+	.how-ordering-works::before,
+	.how-ordering-works::after,
+	.how-ordering-works *,
+	.how-ordering-works *::before,
+	.how-ordering-works *::after,
+	.shop-goal-card,
+	.shop-goal-card::before,
+	.shop-goal-card::after,
+	.shop-goal-card *,
+	.shop-goal-card *::before,
+	.shop-goal-card *::after,
+	.verified-story-card *,
+	.verified-story-card *::before,
+	.verified-story-card *::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+}

@@ -1,0 +1,238 @@
+/**
+ * Zod schema for a COA registry record.
+ *
+ * Single source of truth for the JSON record shape published by the backend
+ * COA registry to `https://api.infinitybiolabs.com/media/coa/<token>.json`,
+ * shared between the API route (runtime validation) and the page (TypeScript
+ * type via `z.infer<>`).
+ *
+ * See docs/coa-checker-spec.md §"Backend / COA registry work" for the
+ * authoritative field list and §"API contract between storefront and backend"
+ * for the public response shape (which sanitises out `saleorVariantId`).
+ */
+
+import { z } from "zod";
+
+import { COA_TOKEN_REGEX } from "./token";
+
+const SHA256_HEX_REGEX = /^[a-f0-9]{64}$/i;
+const ISO_DATE_LOOSE = /^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?)?$/;
+
+/**
+ * Strict URL validator for the `pdfUrl` field.
+ *
+ * `z.string().url()` accepts any URL the WHATWG parser accepts — including
+ * `javascript:`, `data:`, and `file:` schemes. Embedding such URLs into the
+ * iframe would be a direct XSS vector if the registry was compromised or
+ * a backend dev typo'd a value.
+ *
+ * Constraints enforced here:
+ *   1. HTTPS only (HTTP allowed in non-production for local backend dev).
+ *   2. Origin must match `COA_REGISTRY_BASE_URL` (origin pinning) — the
+ *      registry should never reference PDFs hosted elsewhere.
+ *   3. Path must start with the configured registry base path.
+ */
+const pdfUrlSchema = z.string().refine(
+	(value) => {
+		let parsed: URL;
+		try {
+			parsed = new URL(value);
+		} catch {
+			return false;
+		}
+
+		const isProd = process.env.NODE_ENV === "production";
+		const allowedProtocols = isProd ? ["https:"] : ["https:", "http:"];
+		if (!allowedProtocols.includes(parsed.protocol)) return false;
+
+		// Origin-pin to the registry. If the env var isn't set, downstream code
+		// already returns "registry_unavailable" before we get here, so this
+		// branch only matters when the env IS set — in which case we enforce.
+		const baseRaw = process.env.COA_REGISTRY_BASE_URL;
+		if (!baseRaw) return true; // dev convenience; registry helper guards prod
+
+		let base: URL;
+		try {
+			base = new URL(baseRaw);
+		} catch {
+			return false;
+		}
+		if (parsed.origin !== base.origin) return false;
+		if (!parsed.pathname.startsWith(base.pathname.replace(/\/+$/, "") + "/")) return false;
+
+		return true;
+	},
+	{ message: "pdfUrl must be HTTPS and within the configured COA registry origin" },
+);
+
+export const CoaStatusSchema = z.enum(["pending", "active", "superseded", "recalled", "shared"]);
+export type CoaStatus = z.infer<typeof CoaStatusSchema>;
+
+const CoaTraceabilityFields = {
+	labName: z.string().min(1).max(200).optional(),
+	// Backend-only field — never returned to the storefront page.
+	saleorVariantId: z.string().min(1).max(500).optional(),
+};
+
+/**
+ * One lab report. A token may carry several (e.g. dual-lab testing) via the
+ * record's `pdfs[]` array; each entry keeps its own URL + published SHA-256.
+ */
+export const CoaLabPdfSchema = z.object({
+	labName: z.string().min(1).max(200).optional(),
+	pdfUrl: pdfUrlSchema,
+	pdfSha256: z.string().regex(SHA256_HEX_REGEX, "pdfSha256 must be a 64-char hex digest"),
+	issuedAt: z.string().regex(ISO_DATE_LOOSE, "issuedAt must be ISO 8601 (date or datetime)").optional(),
+});
+export type CoaLabPdf = z.infer<typeof CoaLabPdfSchema>;
+
+const PublishedCoaFields = {
+	token: z.string().regex(COA_TOKEN_REGEX, "Token must match XXXX-XXXX-XXXX format"),
+	// Top-level pdfUrl/pdfSha256 mirror pdfs[0] (backward compat). Prefer
+	// `pdfs[]` when present; fall back to these only when it's missing.
+	pdfUrl: pdfUrlSchema,
+	pdfSha256: z.string().regex(SHA256_HEX_REGEX, "pdfSha256 must be a 64-char hex digest"),
+	pdfs: z.array(CoaLabPdfSchema).min(1).optional(),
+	batchNumber: z.string().min(1).max(200),
+	peptideName: z.string().min(1).max(200),
+	issuedAt: z.string().regex(ISO_DATE_LOOSE, "issuedAt must be ISO 8601 (date or datetime)"),
+	...CoaTraceabilityFields,
+};
+
+/**
+ * Raw COA JSON record as published by the backend registry.
+ *
+ * Includes the optional `saleorVariantId` field for backend traceability.
+ * The API route strips this before returning data to the page.
+ */
+export const CoaRecordSchema = z.discriminatedUnion("status", [
+	z.object({
+		token: z.string().regex(COA_TOKEN_REGEX, "Token must match XXXX-XXXX-XXXX format"),
+		status: z.literal("pending"),
+		peptideName: z.string().min(1).max(200),
+		batchNumber: z.string().min(1).max(200).optional(),
+		issuedAt: z.string().regex(ISO_DATE_LOOSE, "issuedAt must be ISO 8601 (date or datetime)").optional(),
+		...CoaTraceabilityFields,
+	}),
+	z.object({
+		status: z.literal("active"),
+		...PublishedCoaFields,
+	}),
+	z.object({
+		status: z.literal("superseded"),
+		...PublishedCoaFields,
+		supersededByToken: z.string().regex(COA_TOKEN_REGEX),
+	}),
+	z
+		.object({
+			status: z.literal("recalled"),
+			...PublishedCoaFields,
+			recallReason: z.string().min(1).max(2000).optional(),
+		})
+		.superRefine((data, ctx) => {
+			if (!data.recallReason) {
+				ctx.addIssue({
+					code: z.ZodIssueCode.custom,
+					path: ["recallReason"],
+					message: "recallReason is required when status is 'recalled'",
+				});
+			}
+		}),
+	// A token that was mistakenly printed on labels across multiple batches
+	// (e.g. the same QR repeated on every product of a print run). The verify
+	// page must NOT assert a single batch's authenticity for these — it
+	// redirects to the guided "find your COA" page (/coa/find) instead.
+	// Only token + status are required so ops can flip a record by replacing
+	// its JSON with `{ "token": "...", "status": "shared" }`; any leftover
+	// published fields are stripped by Zod and never rendered.
+	z.object({
+		token: z.string().regex(COA_TOKEN_REGEX, "Token must match XXXX-XXXX-XXXX format"),
+		status: z.literal("shared"),
+		// Optional operator note documenting why the token was marked shared.
+		note: z.string().max(2000).optional(),
+		...CoaTraceabilityFields,
+	}),
+]);
+
+export type CoaRecord = z.infer<typeof CoaRecordSchema>;
+
+/**
+ * Public-facing COA shape returned by the storefront API to the page.
+ *
+ * Strips `saleorVariantId` (internal traceability only).
+ */
+type StripInternal<T> = T extends unknown ? Omit<T, "saleorVariantId"> : never;
+export type PublicCoa = StripInternal<CoaRecord>;
+
+/**
+ * Sanitize a validated registry record into the public response shape.
+ */
+export function toPublicCoa(record: CoaRecord): PublicCoa {
+	// Destructure away saleorVariantId without referencing the unused binding.
+	const { saleorVariantId: _internalOnly, ...publicFields } = record;
+	void _internalOnly;
+	return publicFields as PublicCoa;
+}
+
+/** API success/failure response envelope. Mirrors docs/coa-checker-spec.md. */
+export type CoaLookupResponse =
+	| { ok: true; coa: PublicCoa }
+	| { ok: false; error: "not_found" | "rate_limited" | "server_error"; message: string };
+
+/**
+ * COA index — published by the backend registry at
+ * `${COA_REGISTRY_BASE_URL}/index.json`. Powers the guided "find your COA"
+ * page (`/coa/find`) that mis-printed shared QR codes redirect to.
+ *
+ * Wire shape (as actually published by the backend, June 2026):
+ *   { "updatedAt": "2026-06-05", "coas": [{ "token", "product", "batch", "status" }] }
+ * `batch` is null until the lab report is published. `issuedAt` is accepted
+ * if the backend adds it later.
+ *
+ * Listing tokens here makes them enumerable **by design**: COAs are public
+ * trust assets (product pages already link them); the random 2^60 keyspace
+ * was an anti-guessing measure, never secrecy. Entries never use the
+ * `shared` status — shared tokens are routing artifacts, not selectable
+ * certificates.
+ */
+export const CoaIndexEntrySchema = z.object({
+	token: z.string().regex(COA_TOKEN_REGEX, "Token must match XXXX-XXXX-XXXX format"),
+	product: z.string().min(1).max(200),
+	batch: z.string().min(1).max(200).nullable().optional(),
+	issuedAt: z.string().regex(ISO_DATE_LOOSE, "issuedAt must be ISO 8601 (date or datetime)").optional(),
+	status: z.enum(["pending", "active", "superseded", "recalled"]),
+});
+export type CoaIndexEntry = z.infer<typeof CoaIndexEntrySchema>;
+
+const CoaIndexEnvelopeSchema = z.object({
+	updatedAt: z.string().regex(ISO_DATE_LOOSE, "updatedAt must be ISO 8601 (date or datetime)").optional(),
+	coas: z.array(z.unknown()),
+});
+
+export type CoaIndex = { updatedAt?: string | undefined; entries: CoaIndexEntry[] };
+
+/**
+ * Lenient index parser: validates the envelope strictly, but per-entry
+ * failures only drop that entry — one malformed record published by the
+ * backend must not blank the entire picker for every customer.
+ *
+ * @returns the valid entries plus a count of dropped ones (caller logs), or
+ *          `null` when the envelope itself is unusable.
+ */
+export function parseCoaIndex(json: unknown): { index: CoaIndex; dropped: number } | null {
+	const envelope = CoaIndexEnvelopeSchema.safeParse(json);
+	if (!envelope.success) return null;
+
+	const entries: CoaIndexEntry[] = [];
+	let dropped = 0;
+	for (const raw of envelope.data.coas) {
+		const parsed = CoaIndexEntrySchema.safeParse(raw);
+		if (parsed.success) {
+			entries.push(parsed.data);
+		} else {
+			dropped++;
+		}
+	}
+
+	return { index: { updatedAt: envelope.data.updatedAt, entries }, dropped };
+}

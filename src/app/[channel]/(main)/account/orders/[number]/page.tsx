@@ -1,0 +1,196 @@
+import { connection } from "next/server";
+import { notFound } from "next/navigation";
+import Image from "next/image";
+import Link from "next/link";
+import { MapPin, CreditCard } from "lucide-react";
+import { OrderByNumberDocument } from "@/gql/graphql";
+import { executeAuthenticatedGraphQL } from "@/lib/graphql";
+import { formatDate, formatMoney } from "@/lib/utils";
+import { OrderTimeline } from "@/ui/components/account/order-timeline";
+import { OrderStatusBadge } from "@/ui/components/account/order-status-badge";
+import { type AddressDetailsFragment } from "@/gql/graphql";
+
+type Props = {
+	params: Promise<{ channel: string; number: string }>;
+};
+
+export default async function OrderDetailPage({ params }: Props) {
+	await connection();
+	const { channel, number } = await params;
+
+	let result;
+	try {
+		result = await executeAuthenticatedGraphQL(OrderByNumberDocument, {
+			variables: { first: 100 },
+			cache: "no-cache",
+		});
+	} catch (error) {
+		console.error("[OrderDetailPage] Failed to fetch orders:", error);
+		notFound();
+	}
+
+	if (!result.ok) {
+		console.error("[OrderDetailPage] GraphQL error:", result.error);
+		notFound();
+	}
+
+	if (!result.data.me) {
+		notFound();
+	}
+
+	const orders = result.data.me.orders?.edges ?? [];
+	const order = orders.find(({ node }) => node.number === number)?.node;
+
+	if (!order) {
+		notFound();
+	}
+
+	const itemCount = order.lines.reduce((sum, l) => sum + l.quantity, 0);
+
+	return (
+		<div className="space-y-6">
+			<div className="flex flex-wrap items-start justify-between gap-4">
+				<div>
+					<h1 className="text-2xl font-semibold tracking-tight text-foreground">ORD-{order.number}</h1>
+					<p className="mt-1 text-sm text-muted-foreground">
+						Placed on {formatDate(new Date(order.created))}
+					</p>
+				</div>
+				<OrderStatusBadge status={order.status} statusDisplay={order.statusDisplay} />
+			</div>
+
+			<div className="grid gap-6 lg:grid-cols-[1fr_320px]">
+				<div className="space-y-6">
+					<div className="rounded-xl border border-white/[0.06]">
+						<div className="border-b border-white/[0.06] px-5 py-4">
+							<h2 className="text-sm font-semibold text-foreground">Items ({itemCount})</h2>
+						</div>
+						<div className="divide-y divide-white/[0.06]">
+							{order.lines.map((line) => {
+								if (!line.variant) return null;
+								const product = line.variant.product;
+								const lineTotal = line.variant.pricing?.price?.gross
+									? line.variant.pricing.price.gross.amount * line.quantity
+									: null;
+								const currency = line.variant.pricing?.price?.gross.currency;
+								return (
+									<div key={line.id} className="flex items-center gap-4 px-5 py-4">
+										{product.thumbnail && (
+											<div className="h-16 w-16 shrink-0 overflow-hidden rounded-lg border border-white/[0.06] bg-card">
+												<Image
+													src={product.thumbnail.url}
+													alt={product.thumbnail.alt ?? ""}
+													width={128}
+													height={128}
+													className="h-full w-full object-contain"
+												/>
+											</div>
+										)}
+										<div className="min-w-0 flex-1">
+											<Link
+												href={`/${channel}/products/${product.slug}`}
+												className="text-sm font-medium text-foreground hover:text-emerald-400 hover:underline"
+											>
+												{product.name}
+											</Link>
+											{line.variant.name !== line.variant.id && Boolean(line.variant.name) && (
+												<p className="text-[13px] text-muted-foreground">{line.variant.name}</p>
+											)}
+											<p className="text-[13px] text-muted-foreground">Qty: {line.quantity}</p>
+										</div>
+										{lineTotal != null && currency && (
+											<span className="text-sm font-medium tabular-nums text-foreground">
+												{formatMoney(lineTotal, currency)}
+											</span>
+										)}
+									</div>
+								);
+							})}
+						</div>
+
+						<div className="border-t border-white/[0.06] px-5 py-4">
+							<dl className="space-y-2 text-sm">
+								<div className="flex justify-between">
+									<dt className="text-muted-foreground">Subtotal</dt>
+									<dd className="tabular-nums text-foreground">
+										{formatMoney(order.subtotal.gross.amount, order.subtotal.gross.currency)}
+									</dd>
+								</div>
+								<div className="flex justify-between">
+									<dt className="text-muted-foreground">Shipping</dt>
+									<dd className="tabular-nums text-foreground">
+										{order.shippingPrice.gross.amount === 0
+											? "Free"
+											: formatMoney(order.shippingPrice.gross.amount, order.shippingPrice.gross.currency)}
+									</dd>
+								</div>
+								{order.total.tax.amount > 0 && (
+									<div className="flex justify-between">
+										<dt className="text-muted-foreground">Tax</dt>
+										<dd className="tabular-nums text-foreground">
+											{formatMoney(order.total.tax.amount, order.total.tax.currency)}
+										</dd>
+									</div>
+								)}
+								<div className="flex justify-between border-t border-white/[0.06] pt-2 font-semibold text-foreground">
+									<dt>Total</dt>
+									<dd className="tabular-nums">
+										{formatMoney(order.total.gross.amount, order.total.gross.currency)}
+									</dd>
+								</div>
+							</dl>
+						</div>
+					</div>
+
+					<OrderTimeline order={order} />
+				</div>
+
+				<div className="space-y-4">
+					{order.shippingAddress && <OrderAddress title="Shipping Address" address={order.shippingAddress} />}
+					{order.billingAddress && <OrderAddress title="Billing Address" address={order.billingAddress} />}
+
+					{order.isPaid && (
+						<div className="rounded-xl border border-white/[0.06] px-5 py-4">
+							<h3 className="mb-3 text-sm font-semibold text-foreground">Payment Method</h3>
+							<div className="flex items-center gap-3">
+								<CreditCard className="h-4 w-4 text-muted-foreground" />
+								<span className="text-sm text-foreground">
+									{order.paymentStatus === "FULLY_CHARGED" ? "Paid" : order.paymentStatus}
+								</span>
+							</div>
+						</div>
+					)}
+
+					<Link
+						href={`/${channel}/contact`}
+						className="block w-full rounded-xl border border-white/[0.06] px-5 py-3 text-center text-sm font-medium text-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground"
+					>
+						Need Help?
+					</Link>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function OrderAddress({ title, address }: { title: string; address: AddressDetailsFragment }) {
+	return (
+		<div className="rounded-xl border border-white/[0.06] px-5 py-4">
+			<h3 className="mb-3 text-sm font-semibold text-foreground">{title}</h3>
+			<div className="flex gap-3">
+				<MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+				<div className="text-sm leading-relaxed">
+					<p className="font-medium text-foreground">
+						{address.firstName} {address.lastName}
+					</p>
+					<p className="text-muted-foreground">{address.streetAddress1}</p>
+					{address.streetAddress2 && <p className="text-muted-foreground">{address.streetAddress2}</p>}
+					<p className="text-muted-foreground">
+						{address.postalCode} {address.city}
+					</p>
+					<p className="text-muted-foreground">{address.country.country}</p>
+				</div>
+			</div>
+		</div>
+	);
+}

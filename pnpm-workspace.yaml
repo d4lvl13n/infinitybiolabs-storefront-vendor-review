@@ -1,0 +1,13 @@
+blockExoticSubdeps: true
+
+minimumReleaseAge: 1440
+
+onlyBuiltDependencies:
+  - esbuild
+  - sharp
+  - unrs-resolver
+  - better-sqlite3
+
+onlyBuiltDependenciesFile: ""
+
+trustPolicy: no-downgrade
