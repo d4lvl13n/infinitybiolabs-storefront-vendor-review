@@ -1,0 +1,40 @@
+version: "3"
+
+services:
+  saleor-storefront:
+    container_name: saleor-storefront
+    build:
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_SALEOR_API_URL: ${NEXT_PUBLIC_SALEOR_API_URL}
+        NEXT_PUBLIC_STOREFRONT_URL: ${NEXT_PUBLIC_STOREFRONT_URL}
+        STOREFRONT_URL: ${STOREFRONT_URL:-http://localhost:3000}
+        NEXT_PUBLIC_DEFAULT_CHANNEL: ${NEXT_PUBLIC_DEFAULT_CHANNEL}
+        FEED_CHANNEL: ${FEED_CHANNEL:-}
+        FEED_ITEM_ID_SOURCE: ${FEED_ITEM_ID_SOURCE:-variant_id}
+        FEED_BRAND_NAME: ${FEED_BRAND_NAME:-InfinityBio}
+    environment:
+      - NEXT_PUBLIC_SALEOR_API_URL=${NEXT_PUBLIC_SALEOR_API_URL}
+      - NEXT_PUBLIC_STOREFRONT_URL=${NEXT_PUBLIC_STOREFRONT_URL}
+      - STOREFRONT_URL=${STOREFRONT_URL:-http://localhost:3000}
+      - NEXT_PUBLIC_DEFAULT_CHANNEL=${NEXT_PUBLIC_DEFAULT_CHANNEL}
+      - FEED_CHANNEL=${FEED_CHANNEL:-}
+      - FEED_ITEM_ID_SOURCE=${FEED_ITEM_ID_SOURCE:-variant_id}
+      - FEED_BRAND_NAME=${FEED_BRAND_NAME:-InfinityBio}
+      # Runtime-only secret — never bake into the image. /api/feeds/diagnostics 404s when empty.
+      - FEED_DIAGNOSTICS_TOKEN=${FEED_DIAGNOSTICS_TOKEN:-}
+      - FEED_CACHE_TTL_MS=${FEED_CACHE_TTL_MS:-}
+      - FEED_STALE_TTL_MS=${FEED_STALE_TTL_MS:-}
+      - FEED_GRAPHQL_TIMEOUT_MS=${FEED_GRAPHQL_TIMEOUT_MS:-}
+      - FEED_MAX_PAGES=${FEED_MAX_PAGES:-}
+    restart: always
+    ports:
+      - 3000:3000
+    networks:
+      - saleor_network
+
+  # Add more containers below (nginx, postgres, etc.)
+
+networks:
+  saleor_network:
+    external: false

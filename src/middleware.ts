@@ -1,0 +1,174 @@
+import { NextResponse, type NextRequest } from "next/server";
+
+/**
+ * Channel canonicalization.
+ *
+ * The storefront routes are organized as `/<channel>/<route>` via the
+ * `[channel]` dynamic segment in App Router. Because `[channel]` accepts
+ * ANY string, requests like `/waiver/peptide-calculator` resolve as
+ * `channel="waiver", route="peptide-calculator"` and render duplicate
+ * content under non-canonical URLs. The May 2026 SEO audit traced ~92% of
+ * indexed pages to this bug (34 sets of duplicates).
+ *
+ * VALID_CHANNELS: the canonical channel slugs the storefront serves.
+ * Sourced from NEXT_PUBLIC_DEFAULT_CHANNEL — extend if a multi-channel
+ * setup ever ships.
+ *
+ * NON_CHANNEL_ROOTS: first-segment paths that are REAL non-channel routes
+ * (e.g., the standalone `/checkout` flow and `/access-restricted` decline
+ * page) and must pass through untouched. Static assets and the metadata
+ * routes (`/sitemap.xml`, `/robots.txt`, `/favicon.ico`, etc.) are already
+ * excluded by the `matcher` config below — they never reach this code.
+ */
+const VALID_CHANNELS = new Set(
+	[process.env.NEXT_PUBLIC_DEFAULT_CHANNEL, "default-channel"].filter(Boolean) as string[],
+);
+
+const NON_CHANNEL_ROOTS = new Set(["checkout", "access-restricted", "maintenance"]);
+
+/**
+ * Checkout sign-in redirect (UX nudge — NOT an auth boundary).
+ *
+ * Frier Levitt memo (April 2026), §III.B.b — Know-Your-Customer screening:
+ * account purchases must be tied to a registered, screened customer. This
+ * redirect sends a logged-out visitor on /checkout to the login page (with
+ * `?next=<path>` so they return afterwards) so they don't fill in a checkout
+ * they can't complete.
+ *
+ * It is explicitly NOT the enforcement point. Saleor's GraphQL API is public, so
+ * a direct client can create and complete a checkout without ever loading the
+ * storefront. The authoritative no-guest-checkout rule must therefore live in
+ * Saleor itself — channel configuration and/or a payment app that rejects orders
+ * with no attached, authenticated customer. This edge check only sees cookie
+ * PRESENCE (a stale or forged cookie passes it), which is fine for a UX redirect
+ * but is exactly why it cannot be relied on as a security control.
+ *
+ * Refresh-token cookie name is produced by @saleor/auth-sdk using the pattern:
+ *   `{saleorApiUrl}+saleor_auth_module_refresh_token`  →  non-alphanumeric → `_`
+ * (matches `encodeCookieName()` in src/lib/auth/constants.ts).
+ */
+const SALEOR_API_URL = process.env.NEXT_PUBLIC_SALEOR_API_URL ?? "";
+const DEFAULT_CHANNEL = process.env.NEXT_PUBLIC_DEFAULT_CHANNEL ?? "default-channel";
+
+/**
+ * Site-wide maintenance takedown.
+ *
+ * When MAINTENANCE_MODE === "1", every page request is rewritten to the
+ * standalone /maintenance screen (URL preserved, no storefront chrome). OFF by
+ * default — set the env var (and redeploy, so edge middleware picks it up) to
+ * take the whole storefront down, and unset it to bring it back. Static assets,
+ * _next/*, and /api are already excluded by the `matcher` below, so the page's
+ * own CSS/JS and the logo keep loading behind the screen.
+ */
+const MAINTENANCE_MODE = process.env.MAINTENANCE_MODE === "1";
+const MAINTENANCE_PATH = "/maintenance";
+
+function encodeCookieName(key: string): string {
+	return key.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+const REFRESH_TOKEN_COOKIE = SALEOR_API_URL
+	? encodeCookieName(`${SALEOR_API_URL}+saleor_auth_module_refresh_token`)
+	: null;
+
+function requiresAuth(pathname: string): boolean {
+	return pathname === "/checkout" || pathname.startsWith("/checkout/");
+}
+
+export function middleware(request: NextRequest) {
+	const url = request.nextUrl;
+
+	// ── 0. Maintenance takedown (OFF unless MAINTENANCE_MODE=1) ──
+	// Rewrite every page to /maintenance, keeping the requested URL. Let the
+	// maintenance route itself pass through so we don't loop.
+	if (MAINTENANCE_MODE && url.pathname !== MAINTENANCE_PATH) {
+		const rewritten = url.clone();
+		rewritten.pathname = MAINTENANCE_PATH;
+		rewritten.search = "";
+		return NextResponse.rewrite(rewritten);
+	}
+
+	// ── 1. Channel canonicalization: collapse duplicate-content URLs to /<channel>/* ──
+	//
+	// Without this, `/waiver/peptide-calculator` resolves as channel="waiver" and
+	// renders the calculator under a non-canonical URL. We 308-redirect any
+	// first-segment that isn't a real channel or a known non-channel root, prepending
+	// the default channel and preserving the rest of the path + query string.
+	//
+	// 308 (permanent) is used so search engines transfer ranking signals from the
+	// duplicate URLs to the canonical ones and stop re-crawling the dupes.
+	{
+		const parts = url.pathname.split("/").filter(Boolean);
+		const firstSegment = parts[0];
+		const defaultChannel = process.env.NEXT_PUBLIC_DEFAULT_CHANNEL;
+		if (
+			firstSegment &&
+			defaultChannel &&
+			!VALID_CHANNELS.has(firstSegment) &&
+			!NON_CHANNEL_ROOTS.has(firstSegment)
+		) {
+			const canonical = url.clone();
+			canonical.pathname = `/${defaultChannel}${url.pathname}`;
+			return NextResponse.redirect(canonical, 308);
+		}
+	}
+
+	// ── 2. Checkout sign-in redirect (UX nudge — see the guard's docblock) ──
+	//
+	// Send a logged-out visitor hitting /checkout to the login page with a
+	// ?next=<original-path> so they return after signing in. This is not an auth
+	// boundary: the binding no-guest-checkout rule is enforced Saleor-side.
+	if (REFRESH_TOKEN_COOKIE && requiresAuth(url.pathname)) {
+		const hasRefreshToken = request.cookies.has(REFRESH_TOKEN_COOKIE);
+		if (!hasRefreshToken) {
+			const next = url.pathname + url.search;
+			const loginUrl = url.clone();
+			loginUrl.pathname = `/${DEFAULT_CHANNEL}/login`;
+			loginUrl.search = "";
+			loginUrl.searchParams.set("next", next);
+			return NextResponse.redirect(loginUrl);
+		}
+	}
+
+	// ── 3. Affiliate referral capture ──
+	const ref = url.searchParams.get("ref");
+	if (!ref) return NextResponse.next();
+
+	// Sanitize: only allow alphanumeric, hyphens, underscores (max 50 chars).
+	// Canonical UPPERCASE end-to-end: Saleor's checkout promo-code match is
+	// case-sensitive, and affiliate codes are minted uppercase — `?ref=sarah`
+	// must still apply voucher SARAH.
+	const sanitized = ref
+		.replace(/[^a-zA-Z0-9_-]/g, "")
+		.slice(0, 50)
+		.toUpperCase();
+	if (!sanitized) return NextResponse.next();
+
+	// Strip the ref param from the URL for clean URLs
+	const cleanUrl = url.clone();
+	cleanUrl.searchParams.delete("ref");
+
+	const response = NextResponse.redirect(cleanUrl);
+	response.cookies.set("affiliate_code", sanitized, {
+		maxAge: 30 * 24 * 60 * 60, // 30 days
+		path: "/",
+		sameSite: "lax",
+		secure: url.protocol === "https:",
+		httpOnly: false, // Needs to be readable by checkout JS
+	});
+
+	return response;
+}
+
+export const config = {
+	// Only run on page routes, skip API/static/internal paths.
+	//
+	// The trailing `.*\\.[a-zA-Z0-9]+$` excludes paths whose LAST segment is
+	// a file extension (e.g. `/sitemap.xml`, `/sample-coa.pdf`). The earlier
+	// version excluded any path containing a dot anywhere, which let
+	// `/sample-coa.pdf/peptide-calculator` skip middleware entirely — bypassing
+	// channel canonicalization and producing ghost pages flagged by the
+	// May 22 2026 audit. Slugs with mid-path dots (`v2.0-blend`) still match
+	// because they don't end with `.ext$`.
+	matcher: ["/((?!api|_next/static|_next/image|favicon.ico|.*\\.[a-zA-Z0-9]+$).*)"],
+};

@@ -1,0 +1,88 @@
+"use client";
+
+import { Suspense } from "react";
+import {
+	FilterBar,
+	ProductGrid,
+	useProductFilters,
+	type ProductCardData,
+	type ProductNavOption,
+} from "@/ui/components/plp";
+import { Pagination } from "@/ui/components/pagination";
+
+interface CategoryPageClientProps {
+	products: ProductCardData[];
+	/** Full product list (name + href) for the quick-jump Products dropdown. */
+	productOptions?: ProductNavOption[];
+	pageInfo: {
+		hasNextPage: boolean;
+		hasPreviousPage: boolean;
+		startCursor?: string | null;
+		endCursor?: string | null;
+	};
+	totalCount?: number;
+}
+
+function PaginationSkeleton() {
+	return (
+		<nav className="flex items-center justify-center gap-x-4 px-4 pt-12">
+			<span className="h-10 w-24 animate-pulse rounded bg-secondary" />
+			<span className="h-10 w-24 animate-pulse rounded bg-secondary" />
+		</nav>
+	);
+}
+
+export function CategoryPageClient({ products, productOptions, pageInfo }: CategoryPageClientProps) {
+	const {
+		filteredProducts,
+		colorOptions,
+		sizeOptions,
+		selectedColors,
+		selectedSizes,
+		sortValue,
+		activeFilters,
+		handleColorToggle,
+		handleSizeToggle,
+		handleSortChange,
+		handleRemoveFilter,
+		handleClearFilters,
+	} = useProductFilters({ products });
+
+	return (
+		<div className="min-h-screen bg-background">
+			<FilterBar
+				resultCount={filteredProducts.length}
+				sortValue={sortValue}
+				onSortChange={handleSortChange}
+				productOptions={productOptions}
+				colorOptions={colorOptions}
+				sizeOptions={sizeOptions}
+				selectedColors={selectedColors}
+				selectedSizes={selectedSizes}
+				onColorToggle={handleColorToggle}
+				onSizeToggle={handleSizeToggle}
+				activeFilters={activeFilters}
+				onRemoveFilter={handleRemoveFilter}
+				onClearFilters={handleClearFilters}
+			/>
+			<div className="mx-auto max-w-7xl px-4 py-10 sm:px-6 sm:py-12 lg:px-8">
+				{filteredProducts.length > 0 ? (
+					<ProductGrid products={filteredProducts} />
+				) : (
+					<div className="py-20 text-center">
+						<p className="text-lg text-muted-foreground">No products match your filters.</p>
+						<button
+							onClick={handleClearFilters}
+							className="mt-4 text-sm font-medium text-emerald-400 underline underline-offset-4 transition-colors hover:text-emerald-300"
+						>
+							Clear all filters
+						</button>
+					</div>
+				)}
+				<Suspense fallback={<PaginationSkeleton />}>
+					<Pagination pageInfo={pageInfo} />
+				</Suspense>
+			</div>
+		</div>
+	);
+}

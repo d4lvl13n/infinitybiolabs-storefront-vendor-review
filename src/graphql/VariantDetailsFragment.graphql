@@ -1,0 +1,48 @@
+fragment VariantDetails on ProductVariant {
+	id
+	name
+	sku
+	quantityAvailable
+	# Bulk-order packs carry public metadata pack_size ("10"/"20"/"50");
+	# the single base vial has none. Drives the "Buy in bulk & save" selector.
+	packSize: metafield(key: "pack_size")
+	selectionAttributes: attributes(variantSelection: VARIANT_SELECTION) {
+		values {
+			name
+			value
+		}
+		attribute {
+			name
+			slug
+		}
+	}
+	nonSelectionAttributes: attributes(variantSelection: NOT_VARIANT_SELECTION) {
+		values {
+			name
+			value
+		}
+		attribute {
+			name
+			slug
+		}
+	}
+	media {
+		url(size: 1024, format: WEBP)
+		alt
+		type
+	}
+	pricing {
+		price {
+			gross {
+				currency
+				amount
+			}
+		}
+		priceUndiscounted {
+			gross {
+				currency
+				amount
+			}
+		}
+	}
+}
