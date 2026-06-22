@@ -2,9 +2,11 @@
 
 import { useState } from "react";
 import { useFormStatus } from "react-dom";
-import { Minus, Plus, ShoppingBag } from "lucide-react";
+import { Minus, Plus, ShoppingBag, ShieldCheck } from "lucide-react";
 import { Button } from "@/ui/components/ui/button";
+import { LinkWithChannel } from "@/ui/atoms/link-with-channel";
 import { cn } from "@/lib/utils";
+import { freeShippingThresholdLabel } from "@/config/brand";
 
 interface AddToCartProps {
 	disabled?: boolean;
@@ -100,6 +102,15 @@ export function AddToCart({ disabled = false, disabledReason, lockQuantity = fal
 			{/* Add to Cart Button */}
 			<AddToCartButton disabled={disabled} disabledReason={disabledReason} />
 
+			{/* Verify batch documentation (Certificate of Analysis picker) */}
+			<LinkWithChannel
+				href="/coa/find"
+				className="inline-flex h-11 w-full items-center justify-center gap-2 rounded-full border border-border bg-background text-sm font-medium text-foreground transition-colors hover:border-emerald-500/40 hover:text-emerald-400"
+			>
+				<ShieldCheck className="h-4 w-4" />
+				View COA
+			</LinkWithChannel>
+
 			{/* Trust Signals */}
 			<div className="flex items-center justify-center gap-6 pt-1 text-xs text-muted-foreground">
 				<span className="flex items-center gap-1.5">
@@ -113,7 +124,7 @@ export function AddToCart({ disabled = false, disabledReason, lockQuantity = fal
 						<path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
 						<path d="M9 22V12h6v10" />
 					</svg>
-					Free delivery over $150
+					Free delivery over {freeShippingThresholdLabel}
 				</span>
 			</div>
 		</div>

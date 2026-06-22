@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { notFound, redirect } from "next/navigation";
+import { redirect } from "next/navigation";
 
 import { buildPageMetadata, noIndexRobots } from "@/lib/seo";
 import { getOperatorGate } from "@/lib/affiliate/admin-auth";
@@ -10,6 +10,8 @@ import {
 	approveApplicationAction,
 	rejectApplicationAction,
 	setCommissionStatusAction,
+	resendAffiliateEmailAction,
+	signOutToOperatorLoginAction,
 	toggleAffiliateActiveAction,
 } from "./actions";
 
@@ -26,7 +28,7 @@ export const dynamic = "force-dynamic"; // operator data must always be fresh
  */
 
 type Params = { channel: string };
-type SearchParams = { ok?: string | string[]; err?: string | string[] };
+type SearchParams = { ok?: string | string[]; err?: string | string[]; warn?: string | string[] };
 
 export async function generateMetadata(props: { params: Promise<Params> }): Promise<Metadata> {
 	const { channel } = await props.params;
@@ -43,15 +45,18 @@ export default async function AffiliateAdminPage(props: {
 	searchParams: Promise<SearchParams>;
 }) {
 	const { channel } = await props.params;
-	const { ok, err } = await props.searchParams;
+	const { ok, err, warn } = await props.searchParams;
 
 	const gate = await getOperatorGate();
 	if (gate.status === "anonymous") {
 		redirect(`/${channel}/login?next=${encodeURIComponent(`/${channel}/affiliate/admin`)}`);
 	}
 	if (gate.status === "forbidden") {
-		// Logged in but not whitelisted — don't advertise that this page exists.
-		notFound();
+		// Logged in but not on the operator whitelist. Rather than a dead-end 404,
+		// show a recoverable notice with a sign-out escape hatch — an operator who
+		// landed on the wrong account can otherwise get stuck (the login page bounces
+		// already-authenticated users straight back here).
+		return <NotAuthorized channel={channel} email={gate.email} />;
 	}
 
 	const [{ applications }, affiliates, { commissions }] = await Promise.all([
@@ -64,6 +69,11 @@ export default async function AffiliateAdminPage(props: {
 	const reviewed = applications.filter((a) => a.status !== "pending").slice(0, 10);
 	const okMsg = typeof ok === "string" ? ok : undefined;
 	const errMsg = typeof err === "string" ? err : undefined;
+	const warnMsg = typeof warn === "string" ? warn : undefined;
+	// Email is the only channel that proactively alerts ops to new applications.
+	// If Resend isn't configured, those alerts (and approval/rejection emails)
+	// silently drop — surface that loudly here, since it can't be emailed.
+	const emailDisabled = !process.env.RESEND_API_KEY;
 
 	return (
 		<section className="bg-background text-foreground">
@@ -78,6 +88,13 @@ export default async function AffiliateAdminPage(props: {
 				</div>
 
 				{/* Action outcome banners */}
+				{emailDisabled && (
+					<div className="mb-6 rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+						<span className="font-semibold">Email notifications are OFF.</span> RESEND_API_KEY is not
+						configured, so new applications won’t email you and approval/rejection emails won’t send. Watch
+						the applications list below and send affiliates their code manually until it’s set.
+					</div>
+				)}
 				{okMsg && (
 					<div className="mb-6 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
 						{okMsg}
@@ -86,6 +103,11 @@ export default async function AffiliateAdminPage(props: {
 				{errMsg && (
 					<div className="mb-6 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
 						{errMsg}
+					</div>
+				)}
+				{warnMsg && (
+					<div className="mb-6 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+						{warnMsg}
 					</div>
 				)}
 
@@ -174,6 +196,43 @@ export default async function AffiliateAdminPage(props: {
 					Dashboard. Commissions appear here on paid orders and move pending → approved → paid; the payment
 					itself (wire / PayPal) happens outside this page.
 				</p>
+			</div>
+		</section>
+	);
+}
+
+// ─── Not-authorized notice ─────────────────────────────────────
+
+function NotAuthorized({ channel, email }: { channel: string; email: string }) {
+	return (
+		<section className="bg-background text-foreground">
+			<div className="mx-auto flex max-w-lg flex-col items-center px-6 py-24 text-center sm:py-32">
+				<p className="text-sm font-medium uppercase tracking-[0.25em] text-emerald-400">
+					Affiliate operator console
+				</p>
+				<h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">This area is for operators</h1>
+				<p className="mt-4 text-sm leading-relaxed text-muted-foreground">
+					You&rsquo;re signed in as <span className="font-medium text-foreground">{email}</span>, which
+					isn&rsquo;t authorized for the affiliate operations console. If you have an operator account, sign
+					out and sign back in with it.
+				</p>
+				<div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+					<form action={signOutToOperatorLoginAction}>
+						<input type="hidden" name="channel" value={channel} />
+						<button
+							type="submit"
+							className="h-10 rounded-lg bg-emerald-500 px-5 text-sm font-semibold text-neutral-950 transition-colors hover:bg-emerald-400"
+						>
+							Sign out &amp; switch account
+						</button>
+					</form>
+					<a
+						href={`/${channel}`}
+						className="h-10 rounded-lg border border-border px-5 text-sm font-medium leading-10 text-muted-foreground transition-colors hover:text-foreground"
+					>
+						Back to storefront
+					</a>
+				</div>
 			</div>
 		</section>
 	);
@@ -432,6 +491,17 @@ function AffiliateRow({ a, channel }: { a: AffiliateWithStats; channel: string }
 			<Stat label="Paid" value={formatMoney(a.paid_amount, "USD")} />
 			<div className="ml-auto flex items-center gap-3">
 				{!a.active && <StatusChip tone="red" label="paused" />}
+				<form action={resendAffiliateEmailAction}>
+					<input type="hidden" name="channel" value={channel} />
+					<input type="hidden" name="affiliate_id" value={a.id} />
+					<button
+						type="submit"
+						title="Re-send this affiliate their code, referral link and commission rate"
+						className="rounded-md border border-neutral-700 px-2.5 py-1 text-xs font-medium text-neutral-300 transition-colors hover:border-emerald-500/50 hover:text-emerald-300"
+					>
+						Resend email
+					</button>
+				</form>
 				<form action={toggleAffiliateActiveAction}>
 					<input type="hidden" name="channel" value={channel} />
 					<input type="hidden" name="affiliate_id" value={a.id} />

@@ -7,7 +7,7 @@
  * Why? Each search engine (Algolia, Typesense, Meilisearch) has unique
  * capabilities that shouldn't be limited by a lowest-common-denominator interface:
  *
- * - Algolia: InstantSearch, recommendations, personalization, analytics
+ * - Algolia: InstantSearch, AI recommendations, personalization, analytics
  * - Typesense: Vector search, geo search, curations, scoped API keys
  * - Meilisearch: Tenant tokens, multi-search, filterable attributes
  *

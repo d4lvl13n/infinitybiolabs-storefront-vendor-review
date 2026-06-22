@@ -4,7 +4,7 @@ import { useTransition } from "react";
 import { useFormStatus } from "react-dom";
 import Image from "next/image";
 import Link from "next/link";
-import { Minus, Plus, Trash2, ShoppingBag, ArrowRight, Truck, RotateCcw, Loader2 } from "lucide-react";
+import { Minus, Plus, Trash2, ShoppingBag, ArrowRight, Truck, FlaskConical, Loader2 } from "lucide-react";
 import { Button } from "@/ui/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetCloseButton } from "@/ui/components/ui/sheet";
 import { useCart } from "./cart-context";
@@ -13,6 +13,7 @@ import { AddToCartForm } from "@/ui/components/pdp/add-to-cart-form";
 import { cn } from "@/lib/utils";
 import { formatMoney } from "@/lib/utils";
 import { localeConfig } from "@/config/locale";
+import { shippingConfig } from "@/config/brand";
 import { hasDiscount } from "@/lib/pricing";
 
 interface CartLine {
@@ -115,7 +116,10 @@ export interface RecommendedProduct {
 interface CartDrawerProps {
 	checkoutId: string | null;
 	lines: CartLine[];
-	totalPrice: {
+	// Product subtotal (pre-shipping). The free-shipping threshold must be measured
+	// against this, NOT the checkout total — once a paid shipping method is attached,
+	// totalPrice includes it and would falsely trip the threshold.
+	subtotalPrice: {
 		gross: {
 			amount: number;
 			currency: string;
@@ -125,13 +129,13 @@ interface CartDrawerProps {
 	recommendations: RecommendedProduct[];
 }
 
-export function CartDrawer({ checkoutId, lines, totalPrice, channel, recommendations }: CartDrawerProps) {
+export function CartDrawer({ checkoutId, lines, subtotalPrice, channel, recommendations }: CartDrawerProps) {
 	const { isOpen, closeCart } = useCart();
 	const [isPending, startTransition] = useTransition();
 
 	const itemCount = lines.reduce((sum, line) => sum + line.quantity, 0);
-	const subtotal = totalPrice?.gross.amount ?? 0;
-	const currency = totalPrice?.gross.currency ?? localeConfig.fallbackCurrency;
+	const subtotal = subtotalPrice?.gross.amount ?? 0;
+	const currency = subtotalPrice?.gross.currency ?? localeConfig.fallbackCurrency;
 
 	const handleRemove = (lineId: string) => {
 		if (!checkoutId) return;
@@ -147,7 +151,7 @@ export function CartDrawer({ checkoutId, lines, totalPrice, channel, recommendat
 		});
 	};
 
-	const freeShippingThreshold = 150;
+	const freeShippingThreshold = shippingConfig.freeShippingThreshold;
 	const progressToFreeShipping = Math.min((subtotal / freeShippingThreshold) * 100, 100);
 	const amountToFreeShipping = Math.max(freeShippingThreshold - subtotal, 0);
 
@@ -430,8 +434,8 @@ export function CartDrawer({ checkoutId, lines, totalPrice, channel, recommendat
 								Free delivery over {formatMoney(freeShippingThreshold, currency)}
 							</span>
 							<span className="flex items-center gap-1.5">
-								<RotateCcw className="h-4 w-4" />
-								30-day returns
+								<FlaskConical className="h-4 w-4" />
+								Lab-tested
 							</span>
 						</div>
 					</div>

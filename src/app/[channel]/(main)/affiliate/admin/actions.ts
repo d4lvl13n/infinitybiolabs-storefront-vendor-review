@@ -2,9 +2,11 @@
 
 import { redirect } from "next/navigation";
 import { requireOperator } from "@/lib/affiliate/admin-auth";
+import { getServerAuthClient } from "@/lib/auth/server";
 import {
 	createAffiliate,
 	getAffiliateByCode,
+	getAffiliateById,
 	updateAffiliate,
 	updateApplicationStatus,
 	updateCommissionStatus,
@@ -25,6 +27,24 @@ const CODE_RE = /^[a-zA-Z0-9_-]{2,50}$/;
 function backTo(channel: string, params: Record<string, string>): never {
 	const qs = new URLSearchParams(params).toString();
 	redirect(`/${encodeURIComponent(channel)}/affiliate/admin${qs ? `?${qs}` : ""}`);
+}
+
+/**
+ * Sign the current (non-operator) user out and bounce them to the login page,
+ * pre-pointed back at the operator console.
+ *
+ * This is the escape hatch for the "not authorized" notice: an operator who
+ * landed here on the wrong account can't otherwise recover, because the login
+ * page redirects already-authenticated users straight back. No operator check —
+ * by definition this is only reached by someone who is NOT an operator, and all
+ * it does is sign the current session out.
+ */
+export async function signOutToOperatorLoginAction(formData: FormData): Promise<void> {
+	const raw = String(formData.get("channel") ?? "").trim();
+	const channel = /^[a-z0-9-]+$/i.test(raw) ? raw : "";
+	await (await getServerAuthClient()).signOut();
+	const base = channel ? `/${channel}` : "";
+	redirect(`${base}/login?next=${encodeURIComponent(`${base}/affiliate/admin`)}`);
 }
 
 export async function approveApplicationAction(formData: FormData): Promise<void> {
@@ -49,7 +69,9 @@ export async function approveApplicationAction(formData: FormData): Promise<void
 	if (!Number.isFinite(ratePct) || ratePct <= 0 || ratePct > 100) {
 		backTo(channel, { err: "Commission must be a percentage between 0 and 100 (e.g. 10)." });
 	}
-	if (!Number.isFinite(discountPct) || discountPct <= 0 || discountPct > 100) {
+	// 0 is allowed: a referral code that attributes commission but gives the
+	// customer no discount is a valid setup. Negatives and >100 are not.
+	if (!Number.isFinite(discountPct) || discountPct < 0 || discountPct > 100) {
 		backTo(channel, { err: "Customer discount must be a percentage between 0 and 100 (e.g. 10)." });
 	}
 
@@ -57,19 +79,12 @@ export async function approveApplicationAction(formData: FormData): Promise<void
 		backTo(channel, { err: `Code "${code}" is already in use — pick another.` });
 	}
 
-	// Provision the Saleor voucher FIRST. If it fails, the approval aborts:
-	// the application stays pending, no affiliate is activated, and no email
-	// goes out advertising a code that wouldn't work at checkout. Retrying
-	// after a fix is safe — an already-existing voucher counts as provisioned.
+	// Best-effort voucher minting. When SALEOR_APP_TOKEN is configured and the
+	// mint succeeds, the code works at checkout immediately. When it isn't set
+	// (or the mint fails), approval STILL completes — the operator creates the
+	// voucher manually in the Saleor Dashboard, and the amber banner below tells
+	// them exactly what to make. Approval is never blocked on Saleor.
 	const voucher = await createAffiliateVoucher({ code, discountPct, channelSlug: channel });
-	if (!voucher.ok) {
-		backTo(channel, {
-			err:
-				`Approval NOT completed — the Saleor voucher couldn't be created (${voucher.reason}). ` +
-				`Fix the app permission (MANAGE_DISCOUNTS on SALEOR_APP_TOKEN) or create voucher "${code}" ` +
-				`manually in the Dashboard (${discountPct}% entire order), then approve again with the same code.`,
-		});
-	}
 
 	const application = await updateApplicationStatus(applicationId, "approved");
 	if (!application) backTo(channel, { err: "Application not found." });
@@ -79,20 +94,34 @@ export async function approveApplicationAction(formData: FormData): Promise<void
 		name: application.name,
 		email: application.email,
 		commission_rate: Math.round(ratePct * 100) / 10000,
-		voucher_id: voucher.voucherId,
+		voucher_id: voucher.ok ? voucher.voucherId : null,
 	});
 
 	const emailed = await notifyApplicationApproved(affiliate);
+	const emailNote = emailed
+		? " They've been emailed their referral link."
+		: " ⚠ Email failed — send them their code manually.";
+	const summary = `Approved ${application.name} as "${affiliate.code}" — ${ratePct}% commission, ${discountPct}% customer discount.`;
 
+	if (voucher.ok) {
+		backTo(channel, {
+			ok:
+				summary +
+				(voucher.alreadyExisted
+					? ` Voucher "${affiliate.code}" already existed in Saleor — reused.`
+					: ` Voucher "${affiliate.code}" created in Saleor.`) +
+				emailNote,
+		});
+	}
+
+	// Mint didn't happen — approval is done, but the discount won't apply until
+	// the operator creates the voucher by hand. Surface that prominently (amber).
 	backTo(channel, {
-		ok:
-			`Approved ${application.name} as "${affiliate.code}" — ${ratePct}% commission, ${discountPct}% customer discount.` +
-			(voucher.alreadyExisted
-				? ` Voucher "${affiliate.code}" already existed in Saleor — reused.`
-				: ` Voucher "${affiliate.code}" created in Saleor.`) +
-			(emailed
-				? " They've been emailed their referral link — the program is live for them."
-				: " ⚠ Email failed — send them their code manually."),
+		warn:
+			summary +
+			` ⚠ Now create voucher "${affiliate.code}" in the Saleor Dashboard: ${discountPct}% off the entire order, ` +
+			`listed on this channel, apply once per customer. Until you do, the referral link won't apply a discount at checkout.` +
+			emailNote,
 	});
 }
 
@@ -154,5 +183,32 @@ export async function toggleAffiliateActiveAction(formData: FormData): Promise<v
 					}`,
 				}
 			: { err: "Affiliate not found." },
+	);
+}
+
+/**
+ * Re-send an existing affiliate their approval email (code, referral link,
+ * commission rate). Recovery for sends that failed at approval time — the
+ * affiliate already exists in Neon, so nothing is re-created; we just re-fire
+ * the same email. Safe to click repeatedly.
+ */
+export async function resendAffiliateEmailAction(formData: FormData): Promise<void> {
+	await requireOperator();
+
+	const channel = String(formData.get("channel") ?? "");
+	const id = Number(formData.get("affiliate_id"));
+	if (!id) backTo(channel, { err: "Missing affiliate id." });
+
+	const affiliate = await getAffiliateById(id);
+	if (!affiliate) backTo(channel, { err: "Affiliate not found." });
+
+	const emailed = await notifyApplicationApproved(affiliate);
+	backTo(
+		channel,
+		emailed
+			? { ok: `Re-sent the code email to ${affiliate.email} (${affiliate.code}).` }
+			: {
+					err: `Couldn't send to ${affiliate.email} — check the email logs (Resend may be misconfigured). Their code is "${affiliate.code}".`,
+				},
 	);
 }

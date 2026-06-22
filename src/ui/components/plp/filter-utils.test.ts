@@ -16,6 +16,9 @@ import {
 	buildActiveFilters,
 	STATIC_PRICE_RANGES,
 	STATIC_PRICE_RANGES_WITH_COUNT,
+	applyPinnedLead,
+	applyPinnedTrail,
+	paginateInMemory,
 } from "./filter-utils";
 import {
 	sampleProducts,
@@ -385,6 +388,85 @@ describe("buildActiveFilters", () => {
 // =============================================================================
 // Static Price Ranges
 // =============================================================================
+describe("applyPinnedLead", () => {
+	const p = (slug: string) => ({ slug });
+
+	it("floats pinned products to the front in PINNED_LEAD_SLUGS order", () => {
+		const input = [p("mots-c"), p("glp-2"), p("bpc-157"), p("glp-1"), p("glp-3")];
+		expect(applyPinnedLead(input).map((x) => x.slug)).toEqual([
+			"glp-1",
+			"glp-2",
+			"glp-3",
+			"mots-c",
+			"bpc-157",
+		]);
+	});
+
+	it("preserves the order of non-pinned products", () => {
+		const input = [p("a"), p("glp-2"), p("b"), p("c")];
+		expect(applyPinnedLead(input).map((x) => x.slug)).toEqual(["glp-2", "a", "b", "c"]);
+	});
+
+	it("is a no-op when no pinned products are present", () => {
+		const input = [p("a"), p("b")];
+		expect(applyPinnedLead(input)).toEqual(input);
+	});
+});
+
+describe("applyPinnedTrail", () => {
+	const p = (slug: string) => ({ slug });
+
+	it("sinks trailed products to the end in PINNED_TRAIL_SLUGS order", () => {
+		const input = [p("oxytocin"), p("bpc-157"), p("kpv"), p("glp-1"), p("aod-9604")];
+		expect(applyPinnedTrail(input).map((x) => x.slug)).toEqual([
+			"bpc-157",
+			"glp-1",
+			"aod-9604",
+			"kpv",
+			"oxytocin",
+		]);
+	});
+
+	it("composes with applyPinnedLead: leads first, trails last, middle preserved", () => {
+		const input = [p("kpv"), p("glp-2"), p("bpc-157"), p("glp-1"), p("oxytocin"), p("tb-500")];
+		const ordered = applyPinnedTrail(applyPinnedLead(input));
+		expect(ordered.map((x) => x.slug)).toEqual(["glp-1", "glp-2", "bpc-157", "tb-500", "kpv", "oxytocin"]);
+	});
+
+	it("is a no-op when no trailed products are present", () => {
+		const input = [p("a"), p("b")];
+		expect(applyPinnedTrail(input)).toEqual(input);
+	});
+});
+
+describe("paginateInMemory", () => {
+	const items = Array.from({ length: 27 }, (_, i) => i);
+
+	it("returns the first page and a forward cursor", () => {
+		const r = paginateInMemory(items, undefined, 12);
+		expect(r.items).toEqual(items.slice(0, 12));
+		expect(r.totalCount).toBe(27);
+		expect(r.pageInfo).toMatchObject({
+			hasNextPage: true,
+			hasPreviousPage: false,
+			startCursor: null,
+			endCursor: "12",
+		});
+	});
+
+	it("slices by absolute offset cursor", () => {
+		const r = paginateInMemory(items, "12", 12);
+		expect(r.items).toEqual(items.slice(12, 24));
+		expect(r.pageInfo).toMatchObject({ hasPreviousPage: true, startCursor: "0", endCursor: "24" });
+	});
+
+	it("marks the last page with no next cursor", () => {
+		const r = paginateInMemory(items, "24", 12);
+		expect(r.items).toEqual(items.slice(24));
+		expect(r.pageInfo).toMatchObject({ hasNextPage: false, endCursor: null });
+	});
+});
+
 describe("STATIC_PRICE_RANGES", () => {
 	it("has 4 price ranges", () => {
 		expect(STATIC_PRICE_RANGES).toHaveLength(4);
