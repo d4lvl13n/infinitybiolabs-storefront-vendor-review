@@ -89,6 +89,83 @@ export function buildSortVariables(sort: SortOption | string | undefined): Produ
 }
 
 // ============================================================================
+// Curated merchandising: pinned-lead products
+// ============================================================================
+
+/**
+ * Products to float to the front of a grid's default ("featured") view, in this
+ * order. Saleor has no manual product ordering for categories, so we curate it
+ * here. Matched by slug (stable across name edits).
+ */
+export const PINNED_LEAD_SLUGS = ["glp-1", "glp-2", "glp-3"] as const;
+
+/**
+ * Products to sink to the END of a grid's default view, in this order. The
+ * mirror of PINNED_LEAD_SLUGS — for low-priority / de-emphasised products.
+ */
+export const PINNED_TRAIL_SLUGS = [
+	"aod-9604",
+	"epithalon",
+	"igf-1-lr3",
+	"kpv",
+	"melanotan-2",
+	"oxytocin",
+	"thymosin-alpha-1",
+] as const;
+
+/**
+ * Float the curated products to the front, preserving the order of everything
+ * else. No-op when none of the pinned products are present. Apply only on the
+ * default/featured view so it never overrides a shopper's explicit sort.
+ */
+export function applyPinnedLead<T extends { slug: string }>(products: T[]): T[] {
+	const rank = new Map<string, number>(PINNED_LEAD_SLUGS.map((slug, i) => [slug, i]));
+	const pinned = products
+		.filter((p) => rank.has(p.slug))
+		.sort((a, b) => rank.get(a.slug)! - rank.get(b.slug)!);
+	if (pinned.length === 0) return products;
+	const pinnedSlugs = new Set(pinned.map((p) => p.slug));
+	return [...pinned, ...products.filter((p) => !pinnedSlugs.has(p.slug))];
+}
+
+/**
+ * Sink the curated products to the END, preserving the order of everything else.
+ * No-op when none are present. Mirror of applyPinnedLead; apply only on the
+ * default/featured view.
+ */
+export function applyPinnedTrail<T extends { slug: string }>(products: T[]): T[] {
+	const rank = new Map<string, number>(PINNED_TRAIL_SLUGS.map((slug, i) => [slug, i]));
+	const trailed = products
+		.filter((p) => rank.has(p.slug))
+		.sort((a, b) => rank.get(a.slug)! - rank.get(b.slug)!);
+	if (trailed.length === 0) return products;
+	const trailedSlugs = new Set(trailed.map((p) => p.slug));
+	return [...products.filter((p) => !trailedSlugs.has(p.slug)), ...trailed];
+}
+
+/**
+ * Offset-paginate an in-memory list. The numeric cursor is round-tripped by the
+ * shared <Pagination> component transparently (same approach the search results
+ * page uses), so curated ordering survives pagination. `cursor` is an absolute
+ * offset; `direction` is irrelevant because the offset is absolute.
+ */
+export function paginateInMemory<T>(items: T[], cursor: string | undefined, pageSize: number) {
+	const offset = Math.max(0, Number.parseInt(cursor ?? "0", 10) || 0);
+	const hasNext = offset + pageSize < items.length;
+	const hasPrev = offset > 0;
+	return {
+		items: items.slice(offset, offset + pageSize),
+		totalCount: items.length,
+		pageInfo: {
+			hasNextPage: hasNext,
+			hasPreviousPage: hasPrev,
+			startCursor: hasPrev ? String(Math.max(0, offset - pageSize)) : null,
+			endCursor: hasNext ? String(offset + pageSize) : null,
+		},
+	};
+}
+
+// ============================================================================
 // Client-side: Extract Filter Options from Products
 // ============================================================================
 

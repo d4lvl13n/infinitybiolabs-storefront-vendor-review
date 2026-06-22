@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { cn } from "@/lib/utils";
+import { freeShippingThresholdLabel } from "@/config/brand";
 
 const faqItems = [
 	{
@@ -10,7 +11,7 @@ const faqItems = [
 	},
 	{
 		q: "How are your products shipped and stored?",
-		a: "Lyophilized peptides are shipped in temperature-controlled packaging with cold packs to maintain stability. We recommend storing at -4°F protected from light and moisture. After reconstitution, store at 36-46°F and use within the timeframe specified on each product's COA.",
+		a: `Shipping is free on all orders over ${freeShippingThresholdLabel}. Lyophilized peptides are shipped in temperature-controlled packaging with cold packs to maintain stability. We recommend storing at -4°F protected from light and moisture. After reconstitution, store at 36-46°F and use within the timeframe specified on each product's COA.`,
 	},
 	{
 		q: "Are your products intended for human use?",
@@ -19,10 +20,6 @@ const faqItems = [
 	{
 		q: "Do you provide Certificates of Analysis?",
 		a: "Yes. Every order includes batch-specific COAs documenting HPLC purity data, mass spectrometry identity confirmation, endotoxin results, and physical characteristics. Historical COAs for any product lot are available upon request.",
-	},
-	{
-		q: "What is your return policy?",
-		a: "Returns are accepted within 14 days of delivery for unopened, sealed items only. If a product doesn't meet the specifications listed on the COA, we replace it at no cost. Contact our support team for return authorization.",
 	},
 	{
 		q: "Do you offer bulk or institutional pricing?",

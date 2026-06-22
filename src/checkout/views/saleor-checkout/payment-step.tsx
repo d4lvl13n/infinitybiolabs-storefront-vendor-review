@@ -2,7 +2,16 @@
 
 import { useState, useEffect, useCallback, useRef, type FC } from "react";
 import Image from "next/image";
-import { ChevronLeft, AlertCircle, CreditCard, ShieldCheck, Tag, RotateCcw, Truck, Lock } from "lucide-react";
+import {
+	ChevronLeft,
+	AlertCircle,
+	CreditCard,
+	ShieldCheck,
+	Tag,
+	FlaskConical,
+	Truck,
+	Lock,
+} from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/ui/components/ui/button";
 import { CheckoutSummaryContext, buildPaymentSummaryRows } from "./checkout-summary-context";
@@ -19,6 +28,7 @@ import { useUser } from "@/checkout/hooks/use-user";
 import { getAddressInputData, isMatchingAddressData } from "@/checkout/components/address-form/utils";
 import { createQueryString } from "@/checkout/lib/utils/url";
 import { localeConfig } from "@/config/locale";
+import { freeShippingThresholdLabel } from "@/config/brand";
 import { MobileStickyAction } from "./mobile-sticky-action";
 import { getStepNumber } from "./flow";
 import {
@@ -659,12 +669,14 @@ export const PaymentStep: FC<PaymentStepProps> = ({
 								<span className="text-[10px] leading-tight text-zinc-500">Secure checkout</span>
 							</div>
 							<div className="flex flex-col items-center rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-3 py-3 text-center">
-								<RotateCcw className="mb-1 h-4 w-4 text-zinc-600" />
-								<span className="text-[10px] leading-tight text-zinc-500">30-day returns</span>
+								<FlaskConical className="mb-1 h-4 w-4 text-zinc-600" />
+								<span className="text-[10px] leading-tight text-zinc-500">Lab-tested</span>
 							</div>
 							<div className="flex flex-col items-center rounded-lg border border-zinc-800/60 bg-zinc-900/50 px-3 py-3 text-center">
 								<Truck className="mb-1 h-4 w-4 text-zinc-600" />
-								<span className="text-[10px] leading-tight text-zinc-500">Free shipping</span>
+								<span className="text-[10px] leading-tight text-zinc-500">
+									{shippingAmount === 0 ? "Free shipping" : `Free shipping ${freeShippingThresholdLabel}+`}
+								</span>
 							</div>
 						</div>
 					</div>

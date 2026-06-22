@@ -14,6 +14,7 @@ import {
 	type ProductDetailsQuery,
 } from "@/gql/graphql";
 import { buildPageMetadata, buildProductJsonLd, buildFaqJsonLd, buildBreadcrumbJsonLd } from "@/lib/seo";
+import { freeShippingThresholdLabel } from "@/config/brand";
 import { formatMoney } from "@/lib/utils";
 import { Breadcrumbs } from "@/ui/components/breadcrumbs";
 import { Reveal } from "@/ui/components/reveal";
@@ -164,7 +165,7 @@ async function ProductContent({
 	const coaUrl = metaMap.get("coa_url") ?? null;
 	const lotNumber = metaMap.get("lot_number") ?? metaMap.get("batch_number") ?? null;
 
-	// FAQ section = product FAQs + storage/handling + shipping/returns
+	// FAQ section = product FAQs + storage/handling + shipping
 	const faqEntries: FaqEntry[] = [
 		...(faqItems ?? []),
 		...(careInstructions
@@ -172,13 +173,7 @@ async function ProductContent({
 			: []),
 		{
 			question: "How is it shipped?",
-			answer:
-				"Free shipping on orders over $150. Standard delivery 3–7 business days, shipped in temperature-controlled packaging to maintain stability.",
-		},
-		{
-			question: "What is your return policy?",
-			answer:
-				"Returns are accepted within 14 days of delivery for unopened, sealed items only. Contact support for return authorization.",
+			answer: `Free shipping on orders over ${freeShippingThresholdLabel}. Standard delivery 3–7 business days, shipped in temperature-controlled packaging to maintain stability.`,
 		},
 	];
 
@@ -548,7 +543,7 @@ function buildDescriptionFallback(
 		parts.push(`from ${formatted}`);
 	}
 
-	parts.push("– COA included, free shipping over $150");
+	parts.push(`– COA included, free shipping over ${freeShippingThresholdLabel}`);
 
 	return parts.join(" · ").slice(0, 160);
 }
